@@ -68,38 +68,52 @@ export async function analyzeBookshelf(
   imageId: string,
   mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg'
 ): Promise<AnalysisResult> {
-  // TODO: Implement the actual API call
-  //
-  // The structure should be:
-  // const response = await anthropic.messages.create({
-  //   model: 'claude-sonnet-4-20250514',
-  //   max_tokens: 4096,
-  //   messages: [
-  //     {
-  //       role: 'user',
-  //       content: [
-  //         {
-  //           type: 'image',
-  //           source: {
-  //             type: 'base64',
-  //             media_type: mediaType,
-  //             data: imageBase64,
-  //           },
-  //         },
-  //         {
-  //           type: 'text',
-  //           text: ANALYSIS_PROMPT.replace('user_provided_id', imageId),
-  //         },
-  //       ],
-  //     },
-  //   ],
-  // });
-  //
-  // Then parse the JSON from response.content[0].text
-  // Handle potential JSON parsing errors gracefully
+  // Call Claude Vision API with the image
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 4096,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: mediaType,
+              data: imageBase64,
+            },
+          },
+          {
+            type: 'text',
+            text: ANALYSIS_PROMPT.replace('user_provided_id', imageId),
+          },
+        ],
+      },
+    ],
+  });
 
-  // Placeholder return for scaffolding
-  throw new Error('TODO: Implement Claude Vision API call');
+  // Extract text from response
+  const textBlock = response.content.find(block => block.type === 'text');
+  if (!textBlock || textBlock.type !== 'text') {
+    throw new Error('No text response from Claude');
+  }
+
+  // Parse JSON from response - Claude might wrap it in markdown code blocks
+  let jsonText = textBlock.text.trim();
+
+  // Remove markdown code block if present (```json ... ```)
+  if (jsonText.startsWith('```')) {
+    jsonText = jsonText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+  }
+
+  try {
+    const result = JSON.parse(jsonText) as AnalysisResult;
+    return result;
+  } catch (parseError) {
+    console.error('Failed to parse Claude response as JSON:', jsonText);
+    throw new Error('Failed to parse book analysis results');
+  }
 }
 
 /**
