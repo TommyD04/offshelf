@@ -6,22 +6,100 @@ interface CameraProps {
   onCapture: (imageBlob: Blob) => void;
 }
 
+// Max dimension for resized images (higher = better detection, larger file)
+// 3000px at 0.92 quality typically produces 2-4MB files
+const MAX_IMAGE_DIMENSION = 3000;
+const JPEG_QUALITY = 0.92;
+
+/**
+ * Compress an image file to fit within size limits
+ * Uses canvas to resize and re-encode as JPEG
+ */
+function compressImage(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      // Calculate new dimensions (maintain aspect ratio)
+      let { width, height } = img;
+      if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+        if (width > height) {
+          height = (height / width) * MAX_IMAGE_DIMENSION;
+          width = MAX_IMAGE_DIMENSION;
+        } else {
+          width = (width / height) * MAX_IMAGE_DIMENSION;
+          height = MAX_IMAGE_DIMENSION;
+        }
+      }
+
+      // Draw to canvas at new size
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Could not get canvas context'));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Convert to JPEG blob
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Failed to compress image'));
+          }
+        },
+        'image/jpeg',
+        JPEG_QUALITY
+      );
+    };
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 export default function Camera({ onCapture }: CameraProps) {
   // Captured photo state (for preview before submitting)
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
+  const [isCompressing, setIsCompressing] = useState(false);
 
   // Handle file selection (from camera or album)
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Store the file as our blob
-    setCapturedBlob(file);
+    setIsCompressing(true);
 
-    // Create preview URL
-    const objectUrl = URL.createObjectURL(file);
-    setCapturedImage(objectUrl);
+    try {
+      // Skip compression if original is already under 5MB (preserves quality)
+      const MAX_SIZE_MB = 5;
+      let finalBlob: Blob;
+
+      if (file.size < MAX_SIZE_MB * 1024 * 1024) {
+        console.log(`Original ${(file.size / 1024 / 1024).toFixed(2)}MB - using as-is (under ${MAX_SIZE_MB}MB limit)`);
+        finalBlob = file;
+      } else {
+        const compressedBlob = await compressImage(file);
+        console.log(`Original: ${(file.size / 1024 / 1024).toFixed(2)}MB → Compressed: ${(compressedBlob.size / 1024 / 1024).toFixed(2)}MB`);
+        finalBlob = compressedBlob;
+      }
+
+      setCapturedBlob(finalBlob);
+
+      // Create preview URL
+      const objectUrl = URL.createObjectURL(finalBlob);
+      setCapturedImage(objectUrl);
+    } catch (error) {
+      console.error('Failed to compress image:', error);
+      // Fall back to original file if compression fails
+      setCapturedBlob(file);
+      setCapturedImage(URL.createObjectURL(file));
+    } finally {
+      setIsCompressing(false);
+    }
   };
 
   // User accepts the captured photo
@@ -39,6 +117,16 @@ export default function Camera({ onCapture }: CameraProps) {
     setCapturedImage(null);
     setCapturedBlob(null);
   };
+
+  // Compressing state
+  if (isCompressing) {
+    return (
+      <div className="w-full max-w-md mx-auto flex flex-col items-center justify-center h-64">
+        <div className="animate-spin w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full" />
+        <p className="mt-3 text-sm text-gray-500">Preparing image...</p>
+      </div>
+    );
+  }
 
   // Preview state - shown after selecting a photo
   if (capturedImage) {
