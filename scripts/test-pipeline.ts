@@ -15,8 +15,10 @@
  * 5. Print the results
  */
 
+import { config } from 'dotenv';
+config({ path: '.env.local' });
+
 import { readFileSync } from 'fs';
-import { processSpineImage } from '../lib/pipeline';
 
 async function main() {
   const imagePath = process.argv[2];
@@ -33,6 +35,9 @@ async function main() {
   console.log('='.repeat(50));
 
   try {
+    // Dynamic import after dotenv has loaded
+    const { processSpineImage } = await import('../lib/pipeline');
+
     // Read the image file
     const imageBuffer = readFileSync(imagePath);
     console.log(`Image size: ${(imageBuffer.length / 1024).toFixed(1)} KB`);
