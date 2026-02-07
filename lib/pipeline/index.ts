@@ -4,14 +4,15 @@
  * Architecture:
  * Image → Detect Spines → Crop Each → Rectify → Enhance → OCR → Interpret → JSON
  *
- * Phase 1 (current): Manual crop → OCR → Interpret
- * Phase 2: Add spine detection with OpenCV
+ * Phase 1: Manual crop → OCR → Interpret
+ * Phase 2 (current): Add spine detection with OpenCV
  * Phase 3: Add rectification and enhancement
  */
 
 import sharp from 'sharp';
 import { extractText, OCRResult } from '../ocr/textExtractor';
 import { parseBookFromOCR, ParsedBook } from '../interpret/bookParser';
+import { detectSpines, DetectionConfig } from './detection';
 
 export interface SpineResult {
   // The parsed book information
@@ -126,22 +127,55 @@ export async function processSpineImages(
 }
 
 /**
- * Phase 2+ placeholder: Process a full bookshelf image
+ * Phase 2: Process a full bookshelf image
  *
- * This will eventually:
- * 1. Detect spine regions using OpenCV
+ * Pipeline:
+ * 1. Detect spine regions using OpenCV edge detection
  * 2. Crop each detected spine
- * 3. Rectify (perspective correction, rotation)
- * 4. Enhance and OCR each spine
- * 5. Return structured results
+ * 3. Enhance and OCR each spine (using Phase 1 pipeline)
+ * 4. Return structured results
  *
- * For now, this is a placeholder that will be implemented in Phase 2.
+ * @param imageBuffer - Full bookshelf image as Buffer
+ * @param imageId - Unique identifier for this image
+ * @param detectionConfig - Optional configuration for spine detection
+ * @returns Full pipeline result with all detected books
  */
 export async function processBookshelfImage(
-  _imageBuffer: Buffer,
-  _imageId: string
+  imageBuffer: Buffer,
+  imageId: string,
+  detectionConfig?: Partial<DetectionConfig>
 ): Promise<PipelineResult> {
-  // TODO: Phase 2 - Implement spine detection
-  // TODO: Phase 3 - Add rectification
-  throw new Error('Full bookshelf processing not yet implemented. Use processSpineImages with pre-cropped spines.');
+  // Step 1: Detect spines using OpenCV
+  const detection = await detectSpines(imageBuffer, detectionConfig);
+
+  // Step 2 & 3: Process each detected spine through Phase 1 pipeline
+  const spines: SpineResult[] = [];
+
+  for (const detectedSpine of detection.spines) {
+    try {
+      const result = await processSpineImage(detectedSpine.imageBuffer);
+      spines.push(result);
+    } catch (error) {
+      // Log error but continue processing other spines
+      console.error(`Error processing spine ${detectedSpine.index}:`, error);
+    }
+  }
+
+  // Calculate summary
+  const summary = {
+    total: spines.length,
+    highConfidence: spines.filter(s => s.confidence >= 0.85).length,
+    mediumConfidence: spines.filter(s => s.confidence >= 0.6 && s.confidence < 0.85).length,
+    lowConfidence: spines.filter(s => s.confidence < 0.6).length,
+  };
+
+  return {
+    imageId,
+    processedAt: new Date().toISOString(),
+    spines,
+    summary,
+  };
 }
+
+// Re-export detection types for convenience
+export { DetectionConfig } from './detection';

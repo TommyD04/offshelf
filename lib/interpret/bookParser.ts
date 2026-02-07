@@ -40,6 +40,17 @@ Return ONLY valid JSON:
  * @returns Parsed book title, author, and confidence
  */
 export async function parseBookFromOCR(ocrText: string): Promise<ParsedBook> {
+  // Guard: skip Claude API if OCR produced no usable text
+  const cleanedText = ocrText.replace(/[^a-zA-Z]/g, '').trim();
+  if (cleanedText.length < 3) {
+    return {
+      title: '',
+      author: '',
+      confidence: 'low',
+      rawOcrText: ocrText,
+    };
+  }
+
   const response = await anthropic.messages.create({
     model: 'claude-3-haiku-20240307', // Fast and cost-effective for this task
     max_tokens: 200,
